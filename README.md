@@ -9,7 +9,7 @@ discordance program to make sure genotype calls converge.
 
 We run 3 types of gels so 3 gel maps are made. 
 
-the 'Sec_2%_E-GEL_Map_blank.xlsx', 'Sec_4%_E-GEL_Map_blank.xlsx', and 'Sec_Agarose_Gel_Map_blank.xlsx' serve as blank templates for the program to add
+the 'Sec_2%_E-GEL_Map.xlsx', 'Sec_4%_E-GEL_Map.xlsx', and 'Sec_Agarose_Gel_Map.xlsx' serve as blank templates for the program to add
 samples and tests to. 
 
 The map making key keeps track of unique loading patterns for certain tests that will determine how samples are arranged on the map.
