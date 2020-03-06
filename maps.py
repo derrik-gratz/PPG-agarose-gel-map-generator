@@ -156,9 +156,19 @@ def fileselect(filelist):
 
 
 def platemapsheet1(path1):
-    # gets assay and sample sheet from platemap
-    wb = load_workbook(filename=path1, data_only=True)
-    ws = wb.worksheets[0]
+    tries = 0
+    while tries < 3:
+        try:
+            wb = load_workbook(filename=path1, data_only=True)
+            ws = wb.worksheets[0]
+        except PermissionError:
+            print('Close out of the platemap. The program will try again in 5 seconds.')
+            sleep(5)
+            tries += 1
+        if tries == 2:
+            print('Alright, clearly nothing is changing. Make sure the platemap is closed and rerun the program')
+            sleep(5)
+            quit()
     return ws
 
 
