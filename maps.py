@@ -21,6 +21,9 @@ class Assay:
         self.samples = []
         self.locations = []
         self.paired_assay = ''
+        self.exclude_PCR = False
+        self.multichannel = False
+        self.number_of_multichannelled_samples = 0
     def set_disease(self, disease):
         self.disease = disease
     def set_geltype(self, geltype):
@@ -41,9 +44,23 @@ class Assay:
         self.AB_allele = size
     def set_B_allele(self, size):
         self.B_allele = size
+    def only_run_digested(self, PCR):
+        self.exclude_PCR = PCR
+    def set_multichannel(self, multichanneled):
+        self.multichannel = multichanneled
+    def set_number_of_multichannelled_samples(self, number):
+        self.number_of_multichannelled_samples = number
 
 
 def main():
+    print('Make sure the target directory will not change while the program is running (e.g. no other programs will add files while this runs)')
+    print("Attempt to multichannel large solo assays?")
+    multichannel = input(":")
+    if multichannel.lower() not in "yes":
+        print("answer wasn't yes, defaulting to no")
+        multichannelled = False
+    else:
+        multichannelled = True
     original_directory = os.getcwd()
     # path to folder for platemap
     path = getpath()
@@ -57,6 +74,8 @@ def main():
     # get assay info
     getinfo(sheet2, objects)
     get_paired_assays(sheet2, objects, original_directory)
+    if multichannelled:
+        reorder_multichanneled_solo_assays(objects)
     # outputs assays, samplecount, and reagents to template copy
     output(path, objects, original_directory)
     
@@ -157,18 +176,19 @@ def fileselect(filelist):
 
 def platemapsheet1(path1):
     tries = 0
-    while tries < 3:
+    while tries < 2:
         try:
             wb = load_workbook(filename=path1, data_only=True)
             ws = wb.worksheets[0]
+            return ws
         except PermissionError:
             print('Close out of the platemap. The program will try again in 5 seconds.')
             sleep(5)
             tries += 1
-        if tries == 2:
-            print('Alright, clearly nothing is changing. Make sure the platemap is closed and rerun the program')
-            sleep(5)
-            quit()
+    if tries == 2:
+        print('Alright, clearly nothing is changing. Make sure the platemap is closed and rerun the program')
+        sleep(5)
+        quit()
     return ws
 
 
@@ -204,11 +224,23 @@ def get_paired_assays(ws, objects, original_directory):
     cwd = os.getcwd()
     os.chdir(original_directory)
     wb = load_workbook(filename='Map Making Key.xlsx', data_only=True)
-    ws= wb.worksheets[2]
+    ws = wb.worksheets[0]
     max_row = ws.max_row+1
     for a in range(2, max_row):
         if ws.cell(row=a,column=3).value == True and (ws.cell(row=a,column=2).value in assaylist):
-            objects[ws.cell(row=a,column=2).value].paired(ws.cell(row=a,column=5).value)
+            objects[ws.cell(row=a,column=2).value].paired(ws.cell(row=a,column=4).value)
+    # assays that are digested but not ran with PCR product
+    ws = wb.worksheets[1]
+    max_row = ws.max_row+1
+    for a in range(1,max_row):
+        if ws.cell(row=a,column=1).value in assaylist:
+            objects[ws.cell(row=a,column=1).value].only_run_digested(True)
+    # assays to multichannel with themselves
+    ws = wb.worksheets[2]
+    max_row = ws.max_row+1
+    for a in range(1,max_row):
+        if ws.cell(row=a,column=1).value in assaylist:
+            objects[ws.cell(row=a,column=1).value].set_multichannel(True)
     os.chdir(cwd)
 
 
@@ -280,7 +312,7 @@ def getassays(ws):
                                 # send sample info to temprary storage
                                 tucked_samples.append(cellvalue)
                                 tucked_locations.append(plateloc)
-                            if len(objects[current_column].samples) == 0 and cellvalue[0] != 'R' and len(tucked_samples) == 0:
+                            if len(objects[current_column].samples) == 0 and (cellvalue[0] != 'R' or cellvalue == 'RNTC_NTC_A_1_1') and len(tucked_samples) == 0 and b != 0:
                                 # if the first sample of the new assay doesn't start with 'R', indicating a control, assumed to be a tucked assay
                                 tucked_samples.append(cellvalue)
                                 tucked_locations.append(plateloc)
@@ -317,13 +349,44 @@ def getassays(ws):
     return objects
 
 
+def reorder_multichanneled_solo_assays(objects):
+    for assay in assaylist:
+        temp_sample_storage = []
+        reordered_samples = []
+        temp_pos_storage = []
+        reordered_locations = []
+        num_of_samples = len(objects[assay].samples)
+        if objects[assay].multichannel and num_of_samples >= 16:
+            objects[assay].set_number_of_multichannelled_samples(num_of_samples)
+            temp_sample_storage = objects[assay].samples
+            temp_pos_storage = objects[assay].locations
+            num_of_samples_to_mc = (num_of_samples - (num_of_samples % 16))
+            for a in range(num_of_samples_to_mc):
+                if a % 16 < 8:
+                    reordered_samples.append(objects[assay].samples[a])
+                    reordered_locations.append(objects[assay].locations[a])
+                    reordered_samples.append(objects[assay].samples[a+8])
+                    reordered_locations.append(objects[assay].locations[a+8])
+            for b in range(num_of_samples_to_mc, num_of_samples):
+                reordered_samples.append(objects[assay].samples[b])
+                reordered_locations.append(objects[assay].locations[b])
+            objects[assay].samples = reordered_samples
+            objects[assay].locations = reordered_locations
+
+
+    
+
 def edittemplate(ws, objects, gel, str1, gellen):
     # all of the output editing
     rowcounter = 0
     current_assay = 0
     # starts with an assay that belongs to the geltype you're looking for
-    while objects[assaylist[current_assay]].geltype != gel:
-        current_assay += 1
+    try:
+        while objects[assaylist[current_assay]].geltype != gel:
+            current_assay += 1
+    except IndexError:
+        print('no assays for geltype {}. skipping map generation'.format(gel))
+        return        
     samplenum = 0
     # default first control sample to AA
     control = 'AA'
@@ -363,12 +426,15 @@ def edittemplate(ws, objects, gel, str1, gellen):
                         else:
                             multichanneled = False  
                         if multichanneled:
-                            # check for uneven sample counts between paired assays, suggesting a sample appears on only one of the assays
-                            if totalsamples > len(objects[paired_ass].samples):
-                                print('You will need to add the unique samples or NTC to {} manually'.format(assaylist[current_assay]))
-                                totalsamples -= 1
-                            if totalsamples < len(objects[paired_ass].samples):
-                                print('You will need to add the unique samples or NTC to {} manually'.format(paired_ass))
+                            try:
+                                # check for uneven sample counts between paired assays, suggesting a sample appears on only one of the assays
+                                if totalsamples > len(objects[paired_ass].samples):
+                                    print('You will need to add the unique samples or NTC to {} manually'.format(assaylist[current_assay]))
+                                    totalsamples -= 1
+                                if totalsamples < len(objects[paired_ass].samples):
+                                    print('You will need to add the unique samples or NTC to {} manually'.format(paired_ass))
+                            except KeyError:
+                                print('You are missing the paired assay for {}. Now neither will be added to the maps. Add them manually'.format(assaylist[current_assay]))
                         samplenum = 0
                         teslen = ((1 + int(objects[assaylist[current_assay]].digested==True))*(totalsamples-1) + 1)
                         control = 'AA'
@@ -387,41 +453,46 @@ def edittemplate(ws, objects, gel, str1, gellen):
                     # sets all values to none for the line
                     output_line(worksheet=ws, rows=rowcounter+x, blank=True)
                 elif multichanneled:
-                    # alternating between the paired assays
-                    if not using_paired_assay:
-                        assay_in_use = assaylist[current_assay]
-                    else:
-                        assay_in_use = paired_ass
                     try:
-                        str1 = objects[assay_in_use].samples[samplenum]
-                        if samplenum > 0:
-                            if str1[0] == 'R':
-                                control = 'AB'
-                            else:
-                                control = ''
-                        if objects[assay_in_use].samples[samplenum] == "RNTC_NTC_A_1_1":
-                            control = 'NTC'
-                        output_line(
-                            worksheet=ws,
-                            rows=rowcounter+x,
-                            assay=assay_in_use,
-                            digested=turns,
-                            control=control,
-                            samplenum=samplenum,
-                            objects=objects
-                        )
-                        if using_paired_assay:
-                            # only move to next sample once paired assay has also had sample used
+                        # alternating between the paired assays
+                        if not using_paired_assay:
+                            assay_in_use = assaylist[current_assay]
+                        else:
+                            assay_in_use = paired_ass
+                        try:
+                            str1 = objects[assay_in_use].samples[samplenum]
+                            if samplenum > 0:
+                                if str1[0] == 'R':
+                                    control = 'AB'
+                                else:
+                                    control = ''
+                            if objects[assay_in_use].samples[samplenum] == "RNTC_NTC_A_1_1":
+                                control = 'NTC'
+                            output_line(
+                                worksheet=ws,
+                                rows=rowcounter+x,
+                                assay=assay_in_use,
+                                digested=turns,
+                                control=control,
+                                samplenum=samplenum,
+                                objects=objects
+                            )
+                            if using_paired_assay:
+                                # only move to next sample once paired assay has also had sample used
+                                samplenum += 1
+                            # move to the other assay
+                            using_paired_assay = not using_paired_assay
+                        except IndexError:
+                            str2 = 'unique samples in {} or {} need to be manually added to the gel map'.format(assay_in_use, paired_ass)
+                            ws.cell(row=(rowcounter+x-1), column=10).value = str2
+                            bust_samples = True
                             samplenum += 1
-                        # move to the other assay
-                        using_paired_assay = not using_paired_assay
-                    except IndexError:
-                        str2 = 'unique samples in {} or {} need to be manually added to the gel map'.format(assay_in_use, paired_ass)
-                        ws.cell(row=(rowcounter+x-1), column=10).value = str2
-                        bust_samples = True
-                        samplenum += 1
+                    except KeyError:
+                        placeholder = True
                 else:
                     # not multichanneled, could be digested but not necessary
+                    if objects[assaylist[current_assay]].exclude_PCR:
+                        turns = 'X'
                     if samplenum > 0:
                         str1 = objects[assaylist[current_assay]].samples[samplenum]
                         if str1[0] == 'R':
@@ -442,7 +513,7 @@ def edittemplate(ws, objects, gel, str1, gellen):
                         samplenum=samplenum,
                         objects=objects
                     )
-                    if objects[assaylist[current_assay]].digested == True and turns == "" and objects[assaylist[current_assay]].samples[samplenum] != "RNTC_NTC_A_1_1":
+                    if objects[assaylist[current_assay]].digested == True and objects[assaylist[current_assay]].exclude_PCR == False and turns == "" and objects[assaylist[current_assay]].samples[samplenum] != "RNTC_NTC_A_1_1":
                         # alternating indicator for digests
                         turns = "X"
                     elif objects[assaylist[current_assay]].samples[samplenum] == "RNTC_NTC_A_1_1":
@@ -454,24 +525,31 @@ def edittemplate(ws, objects, gel, str1, gellen):
 
 def output_line(worksheet, rows, sample=None, disease=None, assay=None, amount=None, digested=None, control=None, location=None, AA=None, AB=None, BB=None, samplenum=None, blank=False, objects=None):
     # puts all information into one line on the sheet
-    if not blank:
-        disease = objects[assay].disease
-        sample=objects[assay].samples[samplenum]
-        AA = objects[assay].A_allele
-        AB = objects[assay].AB_allele
-        BB = objects[assay].B_allele
-        location = objects[assay].locations[samplenum]
-        amount = 20
-    worksheet.cell(row=rows, column=2).value = sample
-    worksheet.cell(row=rows, column=3).value = disease
-    worksheet.cell(row=rows, column=4).value = assay
-    worksheet.cell(row=rows, column=5).value = amount
-    worksheet.cell(row=rows, column=6).value = digested
-    worksheet.cell(row=rows, column=7).value = control
-    worksheet.cell(row=rows, column=9).value = location
-    worksheet.cell(row=rows, column=11).value = AA
-    worksheet.cell(row=rows, column=12).value = AB
-    worksheet.cell(row=rows, column=13).value = BB
+    try:
+        if not blank:
+            disease = objects[assay].disease
+            sample=objects[assay].samples[samplenum]
+            AA = objects[assay].A_allele
+            AB = objects[assay].AB_allele
+            BB = objects[assay].B_allele
+            location = objects[assay].locations[samplenum]
+            amount = 20
+        worksheet.cell(row=rows, column=2).value = sample
+        worksheet.cell(row=rows, column=3).value = disease
+        worksheet.cell(row=rows, column=4).value = assay
+        worksheet.cell(row=rows, column=5).value = amount
+        worksheet.cell(row=rows, column=6).value = digested
+        worksheet.cell(row=rows, column=7).value = control
+        worksheet.cell(row=rows, column=9).value = location
+        worksheet.cell(row=rows, column=11).value = AA
+        worksheet.cell(row=rows, column=12).value = AB
+        worksheet.cell(row=rows, column=13).value = BB
+        #if samplenum < objects[assay].number_of_multichannelled_samples and objects[assay].number_of_multichannelled_samples != 0:
+        #    worksheet.cell(row=rows, column=10).value = 'multichanneled'
+    except IndexError:
+        print('The program got stuck on assay {}. Make sure all the formatting is correct on the platemaps, including the assays before and after this assay.')
+        print('The program will end. Delete any maps that were generated from this run and rerun the program once the map is fixed.')
+        sleep(6)
 
 
 def output(path, objects, original_directory):
