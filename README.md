@@ -1,4 +1,4 @@
-# PPG-agarose-gel-map-generator
+# agarose-gel-map-generator
 
 Sample input: 'gel_02-19-2020-06-03-38.xlsx'. 
 Sample output: '2020-02-19 Sec_2%_E-GEL_Map.xlsx', '2020-02-19 Sec_4%_E-GEL_Map.xlsx', and'2020-02-19 Sec_Agarose_Gel_Map.xlsx'
